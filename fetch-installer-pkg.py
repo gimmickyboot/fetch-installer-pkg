@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 # encoding: utf-8
 #
 # Copyright 2020 Armin Briegel.
@@ -36,16 +36,14 @@ from __future__ import (
 
 import argparse
 import gzip
+import json
 import os
 import plistlib
+import random
 import subprocess
 import sys
-try:
-    # python 2
-    from urllib.parse import urlsplit
-except ImportError:
-    # python 3
-    from urlparse import urlsplit
+from urllib.parse import urlparse
+from urllib.parse import urlsplit
 from xml.dom import minidom
 from xml.parsers.expat import ExpatError
 import xattr
@@ -67,6 +65,18 @@ DEFAULT_SUCATALOGS = {
     '21': 'https://swscan.apple.com/content/catalogs/others/'
           'index-12-10.16-10.15-10.14-10.13-10.12-10.11-10.10-10.9'
           '-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog',
+    '22': 'https://swscan.apple.com/content/catalogs/others/'
+          'index-13-12-10.16-10.15-10.14-10.13-10.12-10.11-10.10-10.9'
+          '-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog',
+    '23': 'https://swscan.apple.com/content/catalogs/others/'
+          'index-14-13-12-10.16-10.15-10.14-10.13-10.12-10.11-10.10-10.9'
+          '-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog',
+    '24': 'https://swscan.apple.com/content/catalogs/others/'
+          'index-15-14-13-12-10.16-10.15-10.14-10.13-10.12-10.11-10.10-10.9'
+          '-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog',
+    '25': 'https://swscan.apple.com/content/catalogs/others/'
+          'index-26-15-14-13-12-10.16-10.15-10.14-10.13-10.12-10.11-10.10-10.9'
+          '-mountainlion-lion-snowleopard-leopard.merged-1.sucatalog',
 }
 
 SEED_CATALOGS_PLIST = (
@@ -75,32 +85,10 @@ SEED_CATALOGS_PLIST = (
 )
 
 
-def get_input(prompt=None):
-    '''Python 2 and 3 wrapper for raw_input/input'''
-    try:
-        return raw_input(prompt)
-    except NameError:
-        # raw_input doesn't exist in Python 3
-        return input(prompt)
-
-
 def read_plist(filepath):
-    '''Wrapper for the differences between Python 2 and Python 3's plistlib'''
-    try:
-        with open(filepath, "rb") as fileobj:
-            return plistlib.load(fileobj)
-    except AttributeError:
-        # plistlib module doesn't have a load function (as in Python 2)
-        return plistlib.readPlist(filepath)
-
-
-def read_plist_from_string(bytestring):
-    '''Wrapper for the differences between Python 2 and Python 3's plistlib'''
-    try:
-        return plistlib.loads(bytestring)
-    except AttributeError:
-        # plistlib module doesn't have a load function (as in Python 2)
-        return plistlib.readPlistFromString(bytestring)
+    '''Wrapper to open a file and return it as a plist'''
+    with open(filepath, "rb") as fileobj:
+        return plistlib.load(fileobj)
 
 
 def get_seeding_program(sucatalog_url):
@@ -110,7 +98,7 @@ def get_seeding_program(sucatalog_url):
         for key, value in seed_catalogs.items():
             if sucatalog_url == value:
                 return key
-        return ''
+            return ''
     except (OSError, IOError, ExpatError, AttributeError, KeyError) as err:
         print(err, file=sys.stderr)
         return ''
@@ -196,8 +184,7 @@ def parse_server_metadata(filename):
         return {}
     vers = md_plist.get('CFBundleShortVersionString', '')
     localization = md_plist.get('localization', {})
-    preferred_localization = (localization.get('English') or
-                              localization.get('en'))
+    preferred_localization = (localization.get('English') or localization.get('en'))
     if preferred_localization:
         title = preferred_localization.get('title', '')
 
@@ -219,7 +206,6 @@ def get_server_metadata(catalog, product_key, workdir, ignore_cache=False):
             print('Could not replicate %s: %s' % (url, err), file=sys.stderr)
             return None
     except KeyError:
-        #print('Malformed catalog.', file=sys.stderr)
         return None
 
 
@@ -250,8 +236,7 @@ def parse_dist(filename):
     # handle the possibility that keys from auxinfo may be nested
     # within a 'dict' element
     dict_nodes = [n for n in auxinfo.childNodes
-                  if n.nodeType == n.ELEMENT_NODE and
-                  n.tagName == 'dict']
+                  if n.nodeType == n.ELEMENT_NODE and n.tagName == 'dict']
     if dict_nodes:
         children = dict_nodes[0].childNodes
     for node in children:
@@ -278,7 +263,8 @@ def download_and_parse_sucatalog(sucatalog, workdir, ignore_cache=False):
         with gzip.open(localcatalogpath) as the_file:
             content = the_file.read()
             try:
-                catalog = read_plist_from_string(content)
+                # catalog = read_plist_from_string(content)
+                catalog = plistlib.loads(content)
                 return catalog
             except ExpatError as err:
                 print('Error reading %s: %s' % (localcatalogpath, err),
@@ -309,6 +295,7 @@ def find_mac_os_installers(catalog, installassistant_pkg_only=False):
             except KeyError:
                 continue
     return mac_os_installer_products
+
 
 def os_installer_product_info(catalog, workdir, ignore_cache=False):
     '''Returns a dict of info about products that look like macOS installers'''
@@ -395,7 +382,7 @@ def main():
                         help='Download the latest version with no user interaction.')
     args = parser.parse_args()
 
-    current_dir = os.getcwd()
+    # current_dir = os.getcwd()
 
     if args.catalogurl:
         su_catalog_url = args.catalogurl
@@ -442,7 +429,7 @@ def main():
                 if (product_info[product_id]['version'] == args.version):
                     found_version = True
                     break
-            if found_version != True:
+            if not found_version:
                 print("Couldn't find version, Exiting.")
                 exit(1)
         else:
@@ -455,7 +442,7 @@ def main():
                     product_info[product_id]['PostDate'].strftime('%Y-%m-%d'),
                     product_info[product_id]['title']
                 ))
-            answer = get_input(
+            answer = input(
                 '\nChoose a product to download (1-%s): ' % len(product_info))
             try:
                 index = int(answer) - 1
@@ -465,13 +452,13 @@ def main():
             except (ValueError, IndexError):
                 print('Exiting.')
                 exit(0)
-    else: # only one product found
+    else:
+        # only one product found
         product_id = list(product_info.keys())[0]
         print("Found a single installer:")
 
-    
     product = catalog['Products'][product_id]
-    
+
     print('%14s %10s %8s %11s  %s' % (
         product_id,
         product_info[product_id].get('version', 'UNKNOWN'),
@@ -486,19 +473,40 @@ def main():
         if package_url.endswith('InstallAssistant.pkg'):
             break
     
-    # print("Package URL is %s" % package_url)
+    try:
+        # find a cache server
+        result = subprocess.run(
+            ['/usr/bin/AssetCacheLocatorUtil', '--json'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        # Parse the JSON output into a Python dictionary
+        data = json.loads(result.stdout)
+        cache_count = len(data["results"]["reachability"])
+        if cache_count > 0:
+            cache_choice = random.randint(1, cache_count) - 1
+            cache_url = data["results"]["reachability"][cache_choice]
+    except FileNotFoundError:
+        print("Error: AssetCacheLocatorUtil not found. This utility is specific to macOS.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error running AssetCacheLocatorUtil: {e.stderr}")
+    except json.JSONDecodeError:
+        print("Error decoding JSON output from AssetCacheLocatorUtil.")
+
+    if cache_count:
+        parsed_package_url = urlparse(package_url)
+        package_url = f"http://{cache_url}{parsed_package_url.path}?source={parsed_package_url.netloc}&sourceScheme={parsed_package_url.scheme}"
+
     download_pkg = replicate_url(package_url, args.workdir, True, ignore_cache=args.ignore_cache)
     
     pkg_name = ('InstallAssistant-%s-%s.pkg' % (product_info[product_id]['version'],
                 product_info[product_id]['BUILD']))
-    
+
     # hard link the downloaded file to cwd
     local_pkg = os.path.join(args.workdir, pkg_name)
     os.link(download_pkg, local_pkg)
-    
-    # unlink download
-    #os.unlink(download_pkg)
-    
+
     # reveal in Finder
     open_cmd = ['open', '-R', local_pkg]
     subprocess.check_call(open_cmd)
